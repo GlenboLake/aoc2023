@@ -1,10 +1,58 @@
-from itertools import chain
+from typing import Iterable
+
+from util import flatten
+
+
+def range_overlap(r1: range, r2: range):
+    left = max(r1.start, r2.start)
+    right = min(r1.stop, r2.stop)
+    return range(left, right)
+
+
+def split_range(r: range, buckets: Iterable[range]):
+    overlaps = {
+        overlap.start: overlap
+        for b in buckets
+        if len(overlap := range_overlap(r, b)) > 0
+    }
+    if not overlaps:
+        return [r]
+    new_ranges = []
+    i = r.start
+    while i < r.stop:
+        if i in overlaps:
+            new_ranges.append(overlaps[i])
+            i = new_ranges[-1].stop
+        else:
+            new_stop = min([k for k in overlaps if k > i] or [r.stop])
+            new_ranges.append(range(i, new_stop))
+            i = new_stop
+    assert sum(len(nr) for nr in new_ranges) == len(r)
+    return new_ranges
+
+
+def merge_ranges(*ranges: range):
+    def merge_two_ranges(r1: range, r2: range):
+        if r1.stop == r2.start:
+            return [range(r1.start, r2.stop)]
+        else:
+            return [r1, r2]
+    new_ranges = [ranges[0]]
+    for r in ranges[1:]:
+        new_ranges[-1:] = merge_two_ranges(new_ranges[-1], r)
+    return new_ranges
 
 
 class Mapping:
     def __init__(self, *map_lines):
         self.segments = [self._parse_line(line) for line in map_lines]
-        self.segments.sort(key=lambda r: r.start)
+        self.segments.sort(key=lambda rs: rs[0].start)
+
+    def __str__(self):
+        return ', '.join(
+            f'{min(s)}..{max(s)}'
+            for s, _ in self.segments
+        )
 
     @staticmethod
     def _parse_line(line):
@@ -16,6 +64,14 @@ class Mapping:
             if value in in_range:
                 return out_range[in_range.index(value)]
         return value
+
+    def convert_range(self, r):
+        pass
+        new_ranges = split_range(r, [src for src, dest in self.segments])
+        return [
+            range(self.convert(r.start), self.convert(r.stop-1)+1)
+            for r in new_ranges
+        ]
 
 
 class Almanac:
@@ -48,9 +104,12 @@ def part2(filename):
     seed_ranges, almanac = parse_input(filename)
     starts = seed_ranges[0::2]
     sizes = seed_ranges[1::2]
-    print(sum(sizes))
-    seeds = chain.from_iterable([range(start, start+size) for start, size in zip(starts, sizes)])
-    return min(almanac.get_location(seed) for seed in seeds)
+    ranges = [range(start, start+size) for start, size in zip(starts, sizes)]
+    ranges.sort(key=lambda r: r.start)
+    for stage in almanac.stages:
+        ranges = [stage.convert_range(r) for r in ranges]
+        ranges = merge_ranges(*sorted(flatten(ranges), key=lambda r: r.start))
+    return min(r.start for r in ranges)
 
 
 if __name__ == '__main__':
