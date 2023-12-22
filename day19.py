@@ -1,3 +1,4 @@
+import math
 import re
 
 
@@ -12,24 +13,14 @@ def parse_input(filename):
             field = rule_spec['field']
             value = int(rule_spec['value'] or 0)
             result = rule_spec['result']
+
             if rule_spec['op'] == '<':
-                def func(part):
-                    if part[field] < value:
-                        return result
-
-                func.__qualname__ = f'{field}_less_than_{value}_to_{result}'
+                allowed = range(1, value)
             elif rule_spec['op'] == '>':
-                def func(part):
-                    if part[field] > value:
-                        return result
-
-                func.__qualname__ = f'{field}_greater_than_{value}_to_{result}'
+                allowed = range(value + 1, 4001)
             else:  # rule_spec['op'] is None
-                def func(part):
-                    return result
-
-                func.__qualname__ = f'to_{result}'
-            return func
+                allowed = range(1, 4001)
+            return field, allowed, result
 
         for line in f:
             if not line.strip():
@@ -54,8 +45,8 @@ def part1(filename):
     for part in parts:
         flow = 'in'
         while flow not in 'AR':
-            for rule in workflows[flow]:
-                if (target := rule(part)) is not None:
+            for field, allowed_range, target in workflows[flow]:
+                if not field or part[field] in allowed_range:
                     flow = target
                     break
         if flow == 'A':
@@ -63,6 +54,60 @@ def part1(filename):
     return sum(sum(part.values()) for part in accepted)
 
 
+def intersect(r1, r2):
+    return range(max(r1.start, r2.start), min(r1.stop, r2.stop))
+
+
+def complement(rule):
+    if rule.start == 1:
+        return range(rule.stop, 4001)
+    return range(1, rule.start)
+
+
+def part2(filename):
+    workflows, _ = parse_input(filename)
+
+    def count_paths(label, restrictions):
+        if label == 'A':
+            return math.prod(len(r) for r in restrictions.values())
+        if label == 'R':
+            return 0
+        workflow = workflows[label]
+        total = 0
+        for field, rule, target in workflow:
+            if field:
+                # There is a condition and we have to consider two possibilities
+                current_range = restrictions[field]
+                success_range = intersect(current_range, rule)
+                fail_range = intersect(current_range, complement(rule))
+                if success_range:
+                    # Success condition is possible, count its paths
+                    success_restrictions = restrictions.copy()
+                    success_restrictions[field] = success_range
+                    total += count_paths(target, success_restrictions)
+                if fail_range:
+                    # Fail condition is possible, consider the next rule
+                    restrictions = restrictions.copy()
+                    restrictions[field] = fail_range
+                else:
+                    # If we can't fail, we can't reach the next rule(s)
+                    break
+            else:
+                # Final rule, with automatic forwarding
+                total += count_paths(target, restrictions)
+        return total
+
+    init_restrictions = {
+        'x': range(1, 4001),
+        'm': range(1, 4001),
+        'a': range(1, 4001),
+        's': range(1, 4001),
+    }
+    return count_paths('in', init_restrictions)
+
+
 if __name__ == '__main__':
     assert part1('inputs/sample19.txt') == 19114
     print('Part 1:', part1('inputs/day19.txt'))
+    assert part2('inputs/sample19.txt') == 167409079868000
+    print('Part 2:', part2('inputs/day19.txt'))
